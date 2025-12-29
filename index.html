@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Endless Winter — Terrain with Hills</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #071025;
+      font-family: 'Arial', sans-serif;
+    }
+    canvas {
+      display: block;
+    }
+    .info {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: white;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 15px;
+      border-radius: 10px;
+      max-width: 300px;
+      z-index: 100;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      color: #aaccff;
+    }
+    .controls {
+      margin-top: 15px;
+    }
+    .slider-container {
+      margin: 10px 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="info">
+    <h1>Winter Hills Terrain</h1>
+    <p>Procedurally generated terrain with hills using custom noise</p>
+    <div class="controls">
+      <div class="slider-container">
+        <label for="heightRange">Terrain Height: <span id="heightValue">50</span></label>
+        <input type="range" id="heightRange" min="10" max="150" value="50">
+      </div>
+      <div class="slider-container">
+        <label for="detailRange">Terrain Detail: <span id="detailValue">4</span></label>
+        <input type="range" id="detailRange" min="1" max="10" value="4">
+      </div>
+      <div class="slider-container">
+        <label for="speedRange">Rotation Speed: <span id="speedValue">0.5</span></label>
+        <input type="range" id="speedRange" min="0" max="2" step="0.1" value="0.5">
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // Simple noise implementation since SimplexNoise might not be available
+    function noise2D(x, y) {
+      const p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180];
+      const perm = [...p, ...p];
+      
+      function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+      function lerp(t, a, b) { return a + t * (b - a); }
+      function grad(hash, x, y) {
+        const h = hash & 15;
+        const u = h < 8 ? x : y;
+        const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
+        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+      }
+
+      const X = Math.floor(x) & 255;
+      const Y = Math.floor(y) & 255;
+      x -= Math.floor(x);
+      y -= Math.floor(y);
+      const u = fade(x);
+      const v = fade(y);
+      
+      const A = perm[X] + Y;
+      const B = perm[X + 1] + Y;
+      
+      return lerp(v, lerp(u, grad(perm[A], x, y), grad(perm[B], x - 1, y)),
+                     lerp(u, grad(perm[A + 1], x, y - 1), grad(perm[B + 1], x - 1, y - 1)));
+    }
+
+    // ---------- Scene + Camera + Renderer ----------
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x071025);
+    scene.fog = new THREE.FogExp2(0x071025, 0.0008);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
+    camera.position.set(0, 120, 250);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    // ---------- Lights ----------
+    scene.add(new THREE.AmbientLight(0x4466aa, 0.4));
+    
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    sun.position.set(200, 300, 100);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 2048;
+    sun.shadow.mapSize.height = 2048;
+    sun.shadow.camera.near = 0.1;
+    sun.shadow.camera.far = 1000;
+    sun.shadow.camera.left = -500;
+    sun.shadow.camera.right = 500;
+    sun.shadow.camera.top = 500;
+    sun.shadow.camera.bottom = -500;
+    scene.add(sun);
+
+    // Add a fill light to reduce harsh shadows
+    const fillLight = new THREE.DirectionalLight(0x6688cc, 0.3);
+    fillLight.position.set(-100, 150, -100);
+    scene.add(fillLight);
+
+    // ---------- Stars ----------
+    function createStars() {
+      const starCount = 2000;
+      const positions = new Float32Array(starCount * 3);
+      const colors = new Float32Array(starCount * 3);
+      
+      for (let i = 0; i < starCount; i++) {
+        positions[i*3+0] = (Math.random()-0.5)*3000;
+        positions[i*3+1] = 100 + Math.random()*500;
+        positions[i*3+2] = (Math.random()-0.5)*3000;
+        
+        // Add some color variation to stars
+        const temp = Math.random();
+        if (temp > 0.8) {
+          // Blue-white stars
+          colors[i*3+0] = 0.8 + Math.random() * 0.2;
+          colors[i*3+1] = 0.9 + Math.random() * 0.1;
+          colors[i*3+2] = 1.0;
+        } else if (temp > 0.6) {
+          // Yellow-white stars
+          colors[i*3+0] = 1.0;
+          colors[i*3+1] = 0.9 + Math.random() * 0.1;
+          colors[i*3+2] = 0.8 + Math.random() * 0.2;
+        } else {
+          // White stars
+          const brightness = 0.7 + Math.random() * 0.3;
+          colors[i*3+0] = brightness;
+          colors[i*3+1] = brightness;
+          colors[i*3+2] = brightness;
+        }
+      }
+      
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      
+      const material = new THREE.PointsMaterial({ 
+        size: 1.5, 
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false 
+      });
+      
+      scene.add(new THREE.Points(geometry, material));
+    }
+    createStars();
+
+    // ---------- Terrain Parameters ----------
+    const SIZE = 1200;
+    const SEGMENTS = 150;
+    let heightMultiplier = 50;
+    let noiseDetail = 4;
+    let rotationSpeed = 0.5;
+
+    // ---------- Create Terrain ----------
+    let terrain, wireframe;
+    let trees = [];
+    
+    function getTerrainHeight(x, z) {
+      const bigHills = noise2D(x * 0.0008, z * 0.0008) * heightMultiplier * 0.8;
+      const mediumHills = noise2D(x * 0.003, z * 0.003) * heightMultiplier * 0.4;
+      const smallHills = noise2D(x * 0.008, z * 0.008) * heightMultiplier * 0.25;
+      const fineDetail = noise2D(x * 0.02 * noiseDetail, z * 0.02 * noiseDetail) * heightMultiplier * 0.15;
+      
+      return bigHills + mediumHills + smallHills + fineDetail;
+    }
+    
+    function createTerrain() {
+      // Remove existing terrain and trees
+      if (terrain) {
+        scene.remove(terrain);
+        terrain.geometry.dispose();
+        terrain.material.dispose();
+      }
+      if (wireframe) {
+        scene.remove(wireframe);
+        wireframe.geometry.dispose();
+        wireframe.material.dispose();
+      }
+      
+      trees.forEach(tree => {
+        scene.remove(tree);
+        tree.geometry.dispose();
+        tree.material.dispose();
+      });
+      trees = [];
+      
+      // Create terrain geometry
+      const terrainGeometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
+      const positions = terrainGeometry.attributes.position.array;
+      const colors = [];
+      
+      // Apply height displacement using noise
+      for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i];
+        const z = positions[i + 1];
+        
+        const height = getTerrainHeight(x, z);
+        positions[i + 2] = height;
+        
+        // Color based on height
+        let r, g, b;
+        const normalizedHeight = height / heightMultiplier;
+        
+        if (normalizedHeight > 0.7) {
+          // Snow caps - bright white/blue
+          r = 0.9 + Math.random() * 0.1;
+          g = 0.9 + Math.random() * 0.1;
+          b = 0.95 + Math.random() * 0.05;
+        } else if (normalizedHeight > 0.4) {
+          // Rocky/icy areas - gray with blue tint
+          const factor = (normalizedHeight - 0.4) / 0.3;
+          r = 0.5 + factor * 0.3;
+          g = 0.5 + factor * 0.3;
+          b = 0.6 + factor * 0.25;
+        } else if (normalizedHeight > 0) {
+          // Mid elevation - darker with slight green
+          const factor = normalizedHeight / 0.4;
+          r = 0.3 + factor * 0.2;
+          g = 0.35 + factor * 0.15;
+          b = 0.4 + factor * 0.2;
+        } else {
+          // Valleys - darkest
+          r = 0.2 + Math.abs(normalizedHeight) * 0.1;
+          g = 0.25 + Math.abs(normalizedHeight) * 0.1;
+          b = 0.3 + Math.abs(normalizedHeight) * 0.1;
+        }
+        
+        colors.push(r, g, b);
+      }
+      
+      terrainGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      terrainGeometry.computeVertexNormals();
+      terrainGeometry.rotateX(-Math.PI/2);
+      
+      // Create terrain material and mesh
+      const terrainMaterial = new THREE.MeshLambertMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide
+      });
+      
+      terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+      terrain.receiveShadow = true;
+      scene.add(terrain);
+      
+      // Add wireframe for visual detail
+      const wireframeGeometry = new THREE.WireframeGeometry(terrainGeometry);
+      wireframe = new THREE.LineSegments(
+        wireframeGeometry,
+        new THREE.LineBasicMaterial({ color: 0x225588, transparent: true, opacity: 0.12 })
+      );
+      scene.add(wireframe);
+      
+      // Add trees
+      addTrees();
+    }
+    
+    function addTrees() {
+      const treeCount = 40;
+      const trunkGeometry = new THREE.CylinderGeometry(1, 2, 8, 6);
+      const foliageGeometry = new THREE.ConeGeometry(6, 18, 8);
+      const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+      const foliageMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+      
+      for (let i = 0; i < treeCount; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 150 + Math.random() * 350;
+        
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        
+        // Use noise to determine if we should place a tree here
+        const treeNoise = noise2D(x * 0.01, z * 0.01);
+        const heightAtPos = getTerrainHeight(x, z);
+        
+        // Only place trees in suitable areas (not too high, not too low)
+        if (treeNoise > 0.1 && heightAtPos > -10 && heightAtPos < heightMultiplier * 0.5) {
+          // Create tree group
+          const treeGroup = new THREE.Group();
+          
+          // Trunk
+          const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+          trunk.position.y = 4;
+          trunk.castShadow = true;
+          treeGroup.add(trunk);
+          
+          // Foliage
+          const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+          foliage.position.y = 12;
+          foliage.castShadow = true;
+          treeGroup.add(foliage);
+          
+          // Position tree on terrain
+          treeGroup.position.set(x, heightAtPos, z);
+          
+          // Random scale and slight rotation
+          const scale = 0.7 + Math.random() * 0.6;
+          treeGroup.scale.set(scale, scale, scale);
+          treeGroup.rotation.y = Math.random() * Math.PI * 2;
+          
+          scene.add(treeGroup);
+          trees.push(treeGroup);
+        }
+      }
+    }
+    
+    // Create initial terrain
+    createTerrain();
+
+    // ---------- Animation ----------
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      // Rotate the scene
+      if (terrain) {
+        terrain.rotation.y += 0.001 * rotationSpeed;
+        if (wireframe) wireframe.rotation.y = terrain.rotation.y;
+        
+        // Rotate trees with terrain
+        trees.forEach(tree => {
+          tree.rotation.y = terrain.rotation.y;
+        });
+      }
+      
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ---------- Event Listeners ----------
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+    
+    // Control sliders
+    const heightSlider = document.getElementById('heightRange');
+    const heightValue = document.getElementById('heightValue');
+    const detailSlider = document.getElementById('detailRange');
+    const detailValue = document.getElementById('detailValue');
+    const speedSlider = document.getElementById('speedRange');
+    const speedValue = document.getElementById('speedValue');
+    
+    heightSlider.addEventListener('input', () => {
+      heightMultiplier = parseFloat(heightSlider.value);
+      heightValue.textContent = heightMultiplier;
+      createTerrain();
+    });
+    
+    detailSlider.addEventListener('input', () => {
+      noiseDetail = parseFloat(detailSlider.value);
+      detailValue.textContent = noiseDetail;
+      createTerrain();
+    });
+    
+    speedSlider.addEventListener('input', () => {
+      rotationSpeed = parseFloat(speedSlider.value);
+      speedValue.textContent = rotationSpeed;
+    });
+
+    // Add mouse controls for camera
+    let mouseDown = false;
+    let mouseX = 0, mouseY = 0;
+
+    document.addEventListener('mousedown', (e) => {
+      mouseDown = true;
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    document.addEventListener('mouseup', () => {
+      mouseDown = false;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!mouseDown) return;
+      
+      const deltaX = e.clientX - mouseX;
+      const deltaY = e.clientY - mouseY;
+      
+      camera.position.x += deltaX * 0.5;
+      camera.position.y -= deltaY * 0.5;
+      
+      // Keep camera above ground
+      if (camera.position.y < 20) camera.position.y = 20;
+      
+      camera.lookAt(0, 0, 0);
+      
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    // Add scroll wheel zoom
+    document.addEventListener('wheel', (e) => {
+      const zoomSpeed = 10;
+      const direction = e.deltaY > 0 ? 1 : -1;
+      
+      camera.position.multiplyScalar(1 + direction * zoomSpeed * 0.01);
+      
+      // Limit zoom
+      const distance = camera.position.length();
+      if (distance < 50) camera.position.normalize().multiplyScalar(50);
+      if (distance > 800) camera.position.normalize().multiplyScalar(800);
+      
+      camera.lookAt(0, 0, 0);
+    });
+  </script>
+</body>
+</html>
