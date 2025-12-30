@@ -341,23 +341,28 @@
     let time = 0;
 
     function animate() {
-      requestAnimationFrame(animate);
+  requestAnimationFrame(animate);
 
-      time += 0.01;
-      offsetZ += speed;
-      camera.position.z = 120 - offsetZ;
+  time += 0.01;
+  offsetZ += speed;
 
-      // Subtle curve to track (procedural x offset)
-      const curve = simplex.noise(0, (camera.position.z / 100) * 0.05) * 10; // Gentle winding
-      camera.position.x = curve;
+// Replace this in animate()
+const camWorldZ = 120 - offsetZ;
+const trackX = 0;  // center of rails
+const trackY = 2;  // small offset above track height
 
-      // Follow terrain height
-      const camWorldZ = camera.position.z;
-      camera.position.y = getHeightAt(camera.position.x, camWorldZ) + 60 + Math.sin(time) * 0.5; // Gentle bob
+camera.position.set(trackX, trackY, camWorldZ);
 
-      // Look forward
-      const lookZ = camWorldZ - 100;
-      camera.lookAt(curve, getHeightAt(curve, lookZ) + 40, lookZ);
+// look ahead down the track
+camera.lookAt(trackX, trackY, camWorldZ - 100);
+
+
+  // look ahead
+  camera.lookAt(
+    camera.position.x,
+    getHeightAt(camera.position.x, camWorldZ - 100) + 40,
+    camWorldZ - 100
+  );
 
       // Shift terrains, trees, tracks, mountains
       const center1 = terrain1.position.z;
